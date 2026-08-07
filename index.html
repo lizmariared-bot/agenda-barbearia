@@ -100,17 +100,16 @@
     lucide.createIcons();
 
     // Configurações do Supabase & Evolution API
-    const SUPABASE_URL = "SUA_URL_DO_SUPABASE";
-    const SUPABASE_ANON_KEY = "SUA_CHAVE_ANON_DO_SUPABASE";
+    const SUPABASE_URL = "https://dhrtesrpaoflhffpxcbh.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_oTy_bhppUfuCLgXFHx-ALw_2UfcHohz";
     const EVOLUTION_API_URL = "SUA_URL_DA_EVOLUTION_API_NO_KOYEB";
     const EVOLUTION_API_KEY = "SUA_API_KEY_DA_EVOLUTION";
-    const INSTANCE_NAME = "minha_barbearia"; // Nome da instância do WhatsApp
+    const INSTANCE_NAME = "StudioD";
 
-    // Cliente Supabase
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Cliente Supabase (Instanciado com nome único para evitar conflitos)
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // Ajusta a data do input para HOJE por padrão
-    document.getElementById('data').valueToDate = new Date();
     document.getElementById('data').value = new Date().toISOString().split('T')[0];
 
     // Envio do Formulário
@@ -131,29 +130,32 @@
 
       try {
         // 1. Salva no Supabase
-        const { data: dbData, error } = await supabase
+        const { data: dbData, error } = await supabaseClient
           .from('agendamentos')
           .insert([{ nome_cliente: nome, whatsapp, data_horario: dataHorario, servico, lembrete_enviado: false }]);
 
         if (error) throw error;
 
-        // 2. Dispara a mensagem de Confirmação via Evolution API
-        const mensagem = `Olá, *${nome}*! 👋\nSeu horário para *${servico}* foi agendado com sucesso!\n\n📅 Data: *${data.split('-').reverse().join('/')}*\n⏰ Horário: *${hora}*\n\nTe esperamos na barbearia! ✂️`;
+        // 2. Dispara a mensagem de Confirmação via Evolution API (se configurada)
+        if (EVOLUTION_API_URL && !EVOLUTION_API_URL.includes("SUA_URL")) {
+          const mensagem = `Olá, *${nome}*! 👋\nSeu horário para *${servico}* foi agendado com sucesso!\n\n📅 Data: *${data.split('-').reverse().join('/')}*\n⏰ Horário: *${hora}*\n\nTe esperamos na barbearia! ✂️`;
 
-        await fetch(`${EVOLUTION_API_URL}/message/sendText/${INSTANCE_NAME}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': EVOLUTION_API_KEY
-          },
-          body: JSON.stringify({
-            number: whatsapp,
-            text: mensagem
-          })
-        });
+          await fetch(`${EVOLUTION_API_URL}/message/sendText/${INSTANCE_NAME}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': EVOLUTION_API_KEY
+            },
+            body: JSON.stringify({
+              number: whatsapp,
+              text: mensagem
+            })
+          });
+        }
 
-        alert('Agendamento salvo e confirmação enviada!');
+        alert('Agendamento salvo com sucesso!');
         document.getElementById('form-agendamento').reset();
+        document.getElementById('data').value = new Date().toISOString().split('T')[0];
         carregarAgendamentos();
 
       } catch (err) {
@@ -169,37 +171,43 @@
     async function carregarAgendamentos() {
       const container = document.getElementById('lista-agendamentos');
       
-      const { data, error } = await supabase
-        .from('agendamentos')
-        .select('*')
-        .order('data_horario', { ascending: true });
+      try {
+        const { data, error } = await supabaseClient
+          .from('agendamentos')
+          .select('*')
+          .order('data_horario', { ascending: true });
 
-      if (error || !data || data.length === 0) {
-        container.innerHTML = `<div class="bg-slate-800 border border-slate-700/50 rounded-xl p-4 text-center text-slate-400 text-xs">Nenhum agendamento encontrado.</div>`;
-        return;
-      }
+        if (error) throw error;
 
-      container.innerHTML = data.map(item => {
-        const dt = new Date(item.data_horario);
-        const horaStr = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        const dataStr = dt.toLocaleDateString('pt-BR');
+        if (!data || data.length === 0) {
+          container.innerHTML = `<div class="bg-slate-800 border border-slate-700/50 rounded-xl p-4 text-center text-slate-400 text-xs">Nenhum agendamento encontrado.</div>`;
+          return;
+        }
 
-        return `
-          <div class="bg-slate-800 border border-slate-700/60 rounded-xl p-3.5 flex justify-between items-center">
-            <div>
-              <div class="font-semibold text-sm text-slate-100">${item.nome_cliente}</div>
-              <div class="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
-                <span>${item.servico}</span> • <span class="text-amber-400 font-medium">${horaStr}</span> (${dataStr})
+        container.innerHTML = data.map(item => {
+          const dt = new Date(item.data_horario);
+          const horaStr = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          const dataStr = dt.toLocaleDateString('pt-BR');
+
+          return `
+            <div class="bg-slate-800 border border-slate-700/60 rounded-xl p-3.5 flex justify-between items-center">
+              <div>
+                <div class="font-semibold text-sm text-slate-100">${item.nome_cliente}</div>
+                <div class="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                  <span>${item.servico}</span> • <span class="text-amber-400 font-medium">${horaStr}</span> (${dataStr})
+                </div>
+              </div>
+              <div class="text-right">
+                <span class="text-[10px] px-2 py-0.5 rounded-full font-medium ${item.lembrete_enviado ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}">
+                  ${item.lembrete_enviado ? 'Lembrete Enviado' : 'Aguardando 2h'}
+                </span>
               </div>
             </div>
-            <div class="text-right">
-              <span class="text-[10px] px-2 py-0.5 rounded-full font-medium ${item.lembrete_enviado ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}">
-                ${item.lembrete_enviado ? 'Lembrete Enviado' : 'Aguardando 2h'}
-              </span>
-            </div>
-          </div>
-        `;
-      }).join('');
+          `;
+        }).join('');
+      } catch (err) {
+        container.innerHTML = `<div class="bg-slate-800 border border-red-500/30 rounded-xl p-4 text-center text-red-400 text-xs">Erro ao carregar dados do Supabase. Verifique a tabela no banco.</div>`;
+      }
     }
 
     // Carrega a lista assim que abre a página
